@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::json as json_value;
 use std::path::{Path, PathBuf};
-use zuri_core::{
-    KnowledgePack, LocalOpenAiProvider, ModelConfig, ModelProvider, Severity,
-};
+use zuri_core::{KnowledgePack, LocalOpenAiProvider, ModelConfig, ModelProvider, Severity};
 
 #[derive(Parser)]
 #[command(
@@ -219,11 +217,7 @@ fn print_explanation(explanation: &zuri_core::Explanation) {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Tui { path: None }) {
-        Command::Init {
-            path,
-            force,
-            json,
-        } => {
+        Command::Init { path, force, json } => {
             let report = zuri_core::init_project(&root(path)?, force)?;
             if json {
                 print_json(&report)?;
