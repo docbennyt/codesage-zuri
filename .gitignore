@@ -1,0 +1,8 @@
+/target
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.zpk
+.DS_Store
+.idea/
+.vscode/
