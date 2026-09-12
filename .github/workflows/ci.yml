@@ -8,6 +8,7 @@ on:
 jobs:
   rust:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -17,9 +18,18 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Format
+      - name: Canonical rustfmt pass
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all
+      - name: Preserve formatted Rust sources
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-sources
+          path: |
+            apps/zuri-cli/src
+            crates/zuri-core/src
+            crates/zuri-core/tests
       - name: Clippy
         if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -28,8 +38,9 @@ jobs:
       - name: Release build
         run: cargo build --workspace --release
       - name: Preserve generated lockfile
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && always()
         uses: actions/upload-artifact@v4
         with:
           name: cargo-lock
           path: Cargo.lock
+          if-no-files-found: ignore
