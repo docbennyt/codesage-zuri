@@ -22,29 +22,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Canonical rustfmt pass
+      - name: Formatting
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --all
-      - name: Preserve formatted Rust sources
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustfmt-sources
-          path: |
-            apps/zuri-cli/src
-            crates/zuri-core/src
-            crates/zuri-core/tests
+        run: cargo fmt --all -- --check
       - name: Clippy
         if: matrix.os == 'ubuntu-latest'
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
       - name: Release build
-        run: cargo build --workspace --release
-      - name: Preserve generated lockfile
-        if: matrix.os == 'ubuntu-latest' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-lock
-          path: Cargo.lock
-          if-no-files-found: ignore
+        run: cargo build --workspace --release --locked
