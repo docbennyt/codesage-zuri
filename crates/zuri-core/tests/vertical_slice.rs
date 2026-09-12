@@ -143,7 +143,10 @@ fn vibe_check_is_deterministic_and_prioritizes_blocking_errors() {
     assert_eq!(report.readiness, "stop-and-understand");
     assert!(report.error_findings >= 1);
     assert_eq!(
-        report.priority_findings.first().map(|finding| finding.severity),
+        report
+            .priority_findings
+            .first()
+            .map(|finding| finding.severity),
         Some(Severity::Error)
     );
     assert_eq!(
