@@ -4,8 +4,13 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const BUILTIN: &str = include_str!("../assets/python_core.json");
+const BUILTIN_ID: &str = "python-core";
+const BUILTIN_VERSION: &str = "0.1.0";
+static PACK_INSTALL_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeEntry {
@@ -43,6 +48,46 @@ fn fts_query(raw: &str) -> Option<String> {
     }
 }
 
+fn pack_is_valid(path: &Path) -> bool {
+    let Ok(conn) = Connection::open(path) else {
+        return false;
+    };
+    let tables_ok = ["manifest", "entries", "entries_fts"].iter().all(|table| {
+        conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE name=?1 LIMIT 1",
+            params![table],
+            |_| Ok(()),
+        )
+        .is_ok()
+    });
+    if !tables_ok {
+        return false;
+    }
+    let id: rusqlite::Result<String> = conn.query_row(
+        "SELECT value FROM manifest WHERE key='id'",
+        [],
+        |row| row.get(0),
+    );
+    let version: rusqlite::Result<String> = conn.query_row(
+        "SELECT value FROM manifest WHERE key='version'",
+        [],
+        |row| row.get(0),
+    );
+    matches!((id, version), (Ok(id), Ok(version)) if id == BUILTIN_ID && version == BUILTIN_VERSION)
+}
+
+fn temp_pack_path(path: &Path) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("knowledge.zpk");
+    path.with_file_name(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp))
+}
+
 impl KnowledgePack {
     pub fn builtin_path() -> Result<PathBuf> {
         let dirs = ProjectDirs::from("dev", "codesage-zuri", "CodeSage Zuri")
@@ -54,54 +99,79 @@ impl KnowledgePack {
 
     pub fn ensure_builtin() -> Result<Self> {
         let path = Self::builtin_path()?;
-        if !path.exists() {
-            Self::build_from_json(&path, BUILTIN)?;
+        let install_lock = PACK_INSTALL_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = install_lock
+            .lock()
+            .map_err(|_| ZuriError::Config("knowledge-pack installer lock was poisoned".into()))?;
+        if !pack_is_valid(&path) {
+            Self::build_from_json_atomic(&path, BUILTIN)?;
         }
         Ok(Self { path })
     }
 
     pub fn build_from_json(path: &Path, json: &str) -> Result<()> {
-        if path.exists() {
-            fs::remove_file(path)?;
-        }
+        Self::build_from_json_atomic(path, json)
+    }
+
+    fn build_from_json_atomic(path: &Path, json: &str) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut conn = Connection::open(path)?;
-        conn.execute_batch(
-            "CREATE TABLE manifest(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-             CREATE TABLE entries(entry_id TEXT PRIMARY KEY,topic TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,keywords_json TEXT NOT NULL,source_title TEXT NOT NULL,source_url TEXT NOT NULL,source_status TEXT NOT NULL);
-             CREATE VIRTUAL TABLE entries_fts USING fts5(entry_id UNINDEXED,title,topic,body,keywords);",
-        )?;
-        conn.execute(
-            "INSERT INTO manifest(key,value) VALUES('id','python-core'),('version','0.1.0'),('schema_version','1'),('language','python')",
-            [],
-        )?;
-        let entries: Vec<KnowledgeEntry> =
-            serde_json::from_str(json).map_err(|e| ZuriError::Config(e.to_string()))?;
-        let tx = conn.transaction()?;
-        for entry in entries {
-            let keywords = entry.keywords.join(" ");
-            tx.execute(
-                "INSERT INTO entries VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-                params![
-                    entry.entry_id,
-                    entry.topic,
-                    entry.title,
-                    entry.body,
-                    serde_json::to_string(&entry.keywords).unwrap(),
-                    entry.source_title,
-                    entry.source_url,
-                    entry.source_status
-                ],
-            )?;
-            tx.execute(
-                "INSERT INTO entries_fts(entry_id,title,topic,body,keywords) VALUES(?1,?2,?3,?4,?5)",
-                params![entry.entry_id, entry.title, entry.topic, entry.body, keywords],
-            )?;
+        let temp = temp_pack_path(path);
+        if temp.exists() {
+            fs::remove_file(&temp)?;
         }
-        tx.commit()?;
-        Ok(())
+        let build_result = (|| -> Result<()> {
+            let mut conn = Connection::open(&temp)?;
+            conn.execute_batch(
+                "CREATE TABLE manifest(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+                 CREATE TABLE entries(entry_id TEXT PRIMARY KEY,topic TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,keywords_json TEXT NOT NULL,source_title TEXT NOT NULL,source_url TEXT NOT NULL,source_status TEXT NOT NULL);
+                 CREATE VIRTUAL TABLE entries_fts USING fts5(entry_id UNINDEXED,title,topic,body,keywords);",
+            )?;
+            conn.execute(
+                "INSERT INTO manifest(key,value) VALUES('id','python-core'),('version','0.1.0'),('schema_version','1'),('language','python')",
+                [],
+            )?;
+            let entries: Vec<KnowledgeEntry> =
+                serde_json::from_str(json).map_err(|e| ZuriError::Config(e.to_string()))?;
+            let tx = conn.transaction()?;
+            for entry in entries {
+                let keywords = entry.keywords.join(" ");
+                tx.execute(
+                    "INSERT INTO entries VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![
+                        entry.entry_id,
+                        entry.topic,
+                        entry.title,
+                        entry.body,
+                        serde_json::to_string(&entry.keywords).unwrap(),
+                        entry.source_title,
+                        entry.source_url,
+                        entry.source_status
+                    ],
+                )?;
+                tx.execute(
+                    "INSERT INTO entries_fts(entry_id,title,topic,body,keywords) VALUES(?1,?2,?3,?4,?5)",
+                    params![entry.entry_id, entry.title, entry.topic, entry.body, keywords],
+                )?;
+            }
+            tx.commit()?;
+            drop(conn);
+            if !pack_is_valid(&temp) {
+                return Err(ZuriError::Config(
+                    "generated knowledge pack failed schema validation".into(),
+                ));
+            }
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
+            fs::rename(&temp, path)?;
+            Ok(())
+        })();
+        if build_result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        build_result
     }
 
     pub fn path(&self) -> &Path {
@@ -146,10 +216,11 @@ impl KnowledgePack {
         let mut statement = conn.prepare(
             "SELECT entry_id,topic,title,body,keywords_json,source_title,source_url,source_status
              FROM entries
-             WHERE topic=?1 OR entry_id=?1
+             WHERE topic=?1 OR entry_id=?1 OR entry_id=?2
              ORDER BY title",
         )?;
-        let rows = statement.query_map(params![topic], |row| {
+        let prefixed = format!("python.{topic}");
+        let rows = statement.query_map(params![topic, prefixed], |row| {
             let keywords: String = row.get(4)?;
             Ok(KnowledgeEntry {
                 entry_id: row.get(0)?,
@@ -181,5 +252,17 @@ mod tests {
             Some("\"mutable\" \"default\"")
         );
         assert!(fts_query("---").is_none());
+    }
+
+    #[test]
+    fn invalid_pack_is_detected() {
+        let path = std::env::temp_dir().join(format!(
+            "zuri-invalid-pack-{}.sqlite",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        Connection::open(&path).unwrap();
+        assert!(!pack_is_valid(&path));
+        let _ = fs::remove_file(path);
     }
 }
