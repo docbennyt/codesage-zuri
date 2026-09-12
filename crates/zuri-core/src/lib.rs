@@ -507,11 +507,19 @@ pub fn vibe_check(root: &Path) -> Result<VibeCheckReport> {
         .take(8)
         .map(|(concept, _)| concept)
         .collect();
-    let priority_findings = findings
+    let mut priority_findings: Vec<Finding> = findings
         .into_iter()
         .filter(|finding| finding.severity >= Severity::Warning)
-        .take(10)
         .collect();
+    priority_findings.sort_by(|a, b| {
+        b.severity
+            .cmp(&a.severity)
+            .then_with(|| b.confidence.cmp(&a.confidence))
+            .then_with(|| a.location.file.cmp(&b.location.file))
+            .then_with(|| a.location.start_line.cmp(&b.location.start_line))
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
+    });
+    priority_findings.truncate(10);
     let readiness = if error_findings > 0 {
         "stop-and-understand"
     } else if warning_findings > 0 || stats.calls_unresolved > 0 {
