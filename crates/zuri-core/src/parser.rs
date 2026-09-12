@@ -260,23 +260,25 @@ fn walk(
             }
         }
         "import_from_statement" => {
-            let module = node
-                .child_by_field_name("module_name")
-                .map(|n| text(n, source))
-                .unwrap_or("")
-                .to_string();
             let raw = text(node, source);
-            let imported = raw.split(" import ").nth(1).unwrap_or("").trim();
+            let body = raw.trim_start_matches("from ");
+            let (module, imported) = body.split_once(" import ").unwrap_or(("", ""));
             for name in imported.trim_matches(&['(', ')'][..]).split(',') {
-                let n = name.trim();
-                if !n.is_empty() {
-                    out.imports.push(Import {
-                        module: module.clone(),
-                        imported_name: Some(n.into()),
-                        alias: None,
-                        line: node.start_position().row + 1,
-                    });
+                let value = name.trim();
+                if value.is_empty() {
+                    continue;
                 }
+                let (imported_name, alias) = if let Some((name, alias)) = value.split_once(" as ") {
+                    (name.trim().to_string(), Some(alias.trim().to_string()))
+                } else {
+                    (value.to_string(), None)
+                };
+                out.imports.push(Import {
+                    module: module.trim().to_string(),
+                    imported_name: Some(imported_name),
+                    alias,
+                    line: node.start_position().row + 1,
+                });
             }
         }
         "call" => {

@@ -110,6 +110,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Benchmark {
+        path: Option<PathBuf>,
+        #[arg(long, default_value_t = 5)]
+        rounds: usize,
+        #[arg(long)]
+        json: bool,
+    },
     Doctor {
         #[arg(long)]
         json: bool,
@@ -240,7 +247,7 @@ fn main() -> Result<()> {
                 print_json(&report)?;
             } else {
                 println!(
-                    "Indexed {}\nPython files: {}\nParsed: {}  unchanged: {}  removed: {}\nSymbols: {}  findings: {}\nResolved calls: {}  unresolved calls: {}\nNetwork used: no\nModel used: no",
+                    "Indexed {}\nPython files: {}\nParsed: {}  unchanged: {}  removed: {}\nSymbols: {}  findings: {}\nResolved calls: {}  probable calls: {}  unresolved calls: {}\nNetwork used: no\nModel used: no",
                     report.root.display(),
                     report.python_files,
                     report.parsed_files,
@@ -249,6 +256,7 @@ fn main() -> Result<()> {
                     report.stats.symbols,
                     report.stats.findings,
                     report.stats.calls_resolved,
+                    report.stats.calls_probable,
                     report.stats.calls_unresolved
                 );
             }
@@ -261,7 +269,7 @@ fn main() -> Result<()> {
                 print_json(&stats)?;
             } else {
                 println!(
-                    "Project: {}\nFiles: {}  symbols: {}  functions/methods: {}  classes: {}\nImports: {}  resolved calls: {}  unresolved calls: {}\nFindings: {}\nIndex: {}",
+                    "Project: {}\nFiles: {}  symbols: {}  functions/methods: {}  classes: {}\nImports: {}  resolved calls: {}  probable calls: {}  unresolved calls: {}\nFindings: {}\nIndex: {}",
                     root.display(),
                     stats.files,
                     stats.symbols,
@@ -269,6 +277,7 @@ fn main() -> Result<()> {
                     stats.classes,
                     stats.imports,
                     stats.calls_resolved,
+                    stats.calls_probable,
                     stats.calls_unresolved,
                     stats.findings,
                     db.path().display()
@@ -480,10 +489,11 @@ fn main() -> Result<()> {
                 print_json(&report)?;
             } else {
                 println!(
-                    "Zuri Vibe Check\nReadiness: {}\nErrors: {}  warnings: {}  unresolved calls: {}\nBasis: {}",
+                    "Zuri Vibe Check\nReadiness: {}\nErrors: {}  warnings: {}  probable calls: {}  unresolved calls: {}\nBasis: {}",
                     report.readiness,
                     report.error_findings,
                     report.warning_findings,
+                    report.probable_calls,
                     report.unresolved_calls,
                     report.basis
                 );
@@ -506,6 +516,35 @@ fn main() -> Result<()> {
                             finding.confidence
                         );
                     }
+                }
+            }
+        }
+        Command::Benchmark { path, rounds, json } => {
+            let report = zuri_core::benchmark_project(&root(path)?, rounds)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "Zuri local benchmark\nProject: {}\nRounds: {}\nCold index: {:.3} ms\nIncremental median: {:.3} ms\nSymbol lookup median: {}\nKnowledge search median: {:.3} ms\nIndex size: {} bytes\nResolved/probable/unresolved calls: {}/{}/{}",
+                    report.root.display(),
+                    report.rounds,
+                    report.cold_index_us as f64 / 1000.0,
+                    report.incremental_median_us as f64 / 1000.0,
+                    report
+                        .symbol_lookup_median_us
+                        .map(|value| format!("{:.3} ms", value as f64 / 1000.0))
+                        .unwrap_or_else(|| "n/a".into()),
+                    report.knowledge_search_median_us as f64 / 1000.0,
+                    report.index_bytes,
+                    report.stats.calls_resolved,
+                    report.stats.calls_probable,
+                    report.stats.calls_unresolved,
+                );
+                if let Some(rss) = report.peak_rss_kib {
+                    println!("Process VmHWM: {rss} KiB");
+                }
+                for note in &report.notes {
+                    println!("Note: {note}");
                 }
             }
         }
