@@ -1,0 +1,37 @@
+name: Normalize hardening branch
+
+on:
+  push:
+    branches: ["feat/zuri-core-v0.1-hardening"]
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/zuri-core-v0.1-hardening
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Canonicalize generated Rust state
+        run: |
+          cargo fmt --all
+          cargo generate-lockfile
+      - name: Commit canonical output
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock apps/zuri-cli/src crates/zuri-core/src crates/zuri-core/tests
+          if git diff --cached --quiet; then
+            echo "Nothing to normalize."
+            exit 0
+          fi
+          git commit -m "chore: normalize Rust sources and lock dependencies"
+          git push origin HEAD:feat/zuri-core-v0.1-hardening
