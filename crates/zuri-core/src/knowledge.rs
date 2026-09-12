@@ -63,11 +63,10 @@ fn pack_is_valid(path: &Path) -> bool {
     if !tables_ok {
         return false;
     }
-    let id: rusqlite::Result<String> = conn.query_row(
-        "SELECT value FROM manifest WHERE key='id'",
-        [],
-        |row| row.get(0),
-    );
+    let id: rusqlite::Result<String> =
+        conn.query_row("SELECT value FROM manifest WHERE key='id'", [], |row| {
+            row.get(0)
+        });
     let version: rusqlite::Result<String> = conn.query_row(
         "SELECT value FROM manifest WHERE key='version'",
         [],
@@ -256,10 +255,8 @@ mod tests {
 
     #[test]
     fn invalid_pack_is_detected() {
-        let path = std::env::temp_dir().join(format!(
-            "zuri-invalid-pack-{}.sqlite",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("zuri-invalid-pack-{}.sqlite", std::process::id()));
         let _ = fs::remove_file(&path);
         Connection::open(&path).unwrap();
         assert!(!pack_is_valid(&path));
