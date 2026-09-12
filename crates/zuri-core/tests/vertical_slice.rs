@@ -12,10 +12,7 @@ fn temp_project(source: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let root = std::env::temp_dir().join(format!(
-        "zuri-test-{}-{stamp}-{id}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("zuri-test-{}-{stamp}-{id}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("a.py"), source).unwrap();
     root
@@ -103,10 +100,18 @@ fn async_decorators_and_caller_identity_are_kept() {
 
     let worker = zuri_core::explain(&root, "worker").unwrap();
     assert_eq!(worker.symbol.kind, SymbolKind::AsyncFunction);
-    assert!(worker.symbol.decorators.iter().any(|value| value.contains("@deco")));
+    assert!(worker
+        .symbol
+        .decorators
+        .iter()
+        .any(|value| value.contains("@deco")));
 
     let helper = zuri_core::explain(&root, "helper").unwrap();
-    let caller_names: Vec<&str> = helper.callers.iter().map(|call| call.name.as_str()).collect();
+    let caller_names: Vec<&str> = helper
+        .callers
+        .iter()
+        .map(|call| call.name.as_str())
+        .collect();
     assert!(caller_names.contains(&"worker"));
     assert!(caller_names.contains(&"entry"));
     cleanup(&root);
@@ -119,7 +124,9 @@ fn init_and_topic_quiz_work_offline() {
     assert!(report.config_path.exists());
     assert!(report.knowledge_pack_path.exists());
     assert!(zuri_core::init_project(&root, false).is_err());
-    assert!(!zuri_core::quiz_topic("mutable-defaults").unwrap().is_empty());
+    assert!(!zuri_core::quiz_topic("mutable-defaults")
+        .unwrap()
+        .is_empty());
     cleanup(&root);
 }
 
