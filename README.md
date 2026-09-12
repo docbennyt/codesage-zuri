@@ -10,7 +10,7 @@ CodeSage Zuri is a local-first static-analysis, code-understanding and learning 
 
 ## What Zuri does
 
-Zuri indexes a Python repository, extracts structural facts with Tree-sitter, stores a local code graph in SQLite, surfaces deterministic review findings, explains symbols from evidence, traces statically resolvable calls, searches a local source-backed Python Knowledge Pack, identifies programming concepts and generates project-aware learning checks.
+Zuri indexes a Python repository, extracts structural facts with Tree-sitter, stores a local code graph in SQLite, surfaces deterministic review findings, explains symbols from evidence, resolves conservative lexical/import relationships, traces calls with uncertainty labels, searches a local source-backed Python Knowledge Pack, identifies programming concepts and generates project-aware learning checks.
 
 **Inspect → Understand → Verify → Learn → Change**
 
@@ -25,14 +25,18 @@ Zuri is not an autonomous coding agent, cloud chatbot wrapper or IDE replacement
 - Python parsing with Tree-sitter.
 - Incremental SQLite project index using content fingerprints.
 - Symbols, imports, calls, structural metrics and programming concepts.
-- Explicit resolved vs unresolved call edges; ambiguous calls remain unresolved.
+- Conservative Python call resolution using lexical scope and repository imports instead of repository-global name guessing.
+- Import aliases and module-qualified repository calls where the relationship can be established statically.
+- Explicit `Resolved`, `Probable` and `Unresolved` call edges. `self` / `cls` method links are deliberately `Probable` because Python remains dynamic.
 - Evidence Contract: `FACT`, `DOCUMENTED`, `INFERENCE`, `MODEL`.
+- Probable call relationships remain `INFERENCE` in model-facing Evidence Bundles; they are never promoted to FACT just because a target was found.
 - Deterministic review findings with stable IDs.
-- `init`, `index`, `status/map`, `symbols`, `explain`, `trace`, `review`, `why`, `concepts`, `search`, `learn`, `quiz`, `vibe-check`, `doctor` and `tui`.
+- `init`, `index`, `status/map`, `symbols`, `explain`, `trace`, `review`, `why`, `concepts`, `search`, `learn`, `quiz`, `vibe-check`, `benchmark`, `doctor` and `tui`.
 - Local SQLite/FTS5 Python Core Knowledge Pack with provenance.
 - Knowledge Pack validation, automatic repair and atomic installation.
 - Project-aware quizzes plus `quiz --topic` from documented local knowledge.
 - Deterministic Vibe Check for "what should I understand before changing this code?".
+- Local benchmark harness for cold indexing, no-change incremental indexing, symbol lookup, knowledge search and index size; Linux also reports process peak RSS (`VmHWM`).
 - Optional local OpenAI-compatible model completion through a bounded Evidence Bundle.
 - Loopback-only model endpoints by default.
 - No telemetry, account or cloud upload.
@@ -70,6 +74,8 @@ zuri concepts auth.py::authenticate_user
 zuri why <finding-id>
 ```
 
+Call edges shown by Explain/Trace carry their resolution state. A probable relationship is useful context, not a claim of runtime certainty.
+
 ## Learn offline
 
 ```bash
@@ -80,6 +86,19 @@ zuri quiz auth.py::authenticate_user
 ```
 
 Project quizzes are generated from indexed repository facts. Topic quizzes come from installed Knowledge Packs and are labeled `DOCUMENTED`.
+
+## Measure this machine
+
+```bash
+zuri benchmark . --rounds 5
+zuri benchmark . --rounds 10 --json
+```
+
+The benchmark command is intentionally local and model-free. It rebuilds Zuri's cache for the cold-index sample, then measures repeated no-change incremental indexing, symbol lookup and Knowledge Pack search. It never executes the analysed project.
+
+A benchmark result describes **the machine it was run on**. GitHub-hosted runner numbers must not be presented as proof that Zuri meets its 4 GB / 8 GB target. Representative low-resource machines are still required before publishing those claims.
+
+See [`docs/performance.md`](docs/performance.md).
 
 ## Optional local model
 
@@ -99,9 +118,9 @@ Important machine-readable commands support `--json`.
 
 Zuri separates what it knows from what it suspects:
 
-- **FACT** — directly derived from source syntax or deterministic repository relationships.
+- **FACT** — directly derived from source syntax or a deterministic repository relationship.
 - **DOCUMENTED** — supported by an installed, sourced Knowledge Pack entry.
-- **INFERENCE** — useful static heuristic that is not guaranteed.
+- **INFERENCE** — useful static heuristic or probable relationship that is not guaranteed.
 - **MODEL** — optional generated wording/interpretation; never promoted to fact.
 
 See [`docs/evidence-contract.md`](docs/evidence-contract.md).
@@ -116,13 +135,11 @@ See [`docs/privacy.md`](docs/privacy.md) and [`docs/model-integration.md`](docs/
 
 The design target is a genuinely useful no-model **ECO** experience on 4 GB systems and ordinary CPUs. The repository deliberately does **not** claim that target has been met until representative 4 GB and 8 GB hardware benchmarks are published. GitHub-hosted CI validates correctness and portability, not low-end performance.
 
-See [`docs/performance.md`](docs/performance.md).
-
 ## Architecture
 
 The v0.1 workspace intentionally keeps crate count small:
 
-- `crates/zuri-core` — scanner, parser, index/store, evidence, review, knowledge, tutor primitives and model boundary.
+- `crates/zuri-core` — scanner, parser, resolver, index/store, evidence, review, benchmark, knowledge, tutor primitives and model boundary.
 - `apps/zuri-cli` — CLI and Ratatui TUI.
 - `crates/zuri-core/assets/python_core.json` — built-in Python Core pack source content/provenance.
 - `fixtures/python` — deterministic test/example projects.
@@ -131,7 +148,7 @@ See [`docs/architecture.md`](docs/architecture.md).
 
 ## Validation
 
-The hardening branch is required to pass:
+Changes are required to pass:
 
 ```bash
 cargo fmt --all -- --check
@@ -144,8 +161,8 @@ CI runs tests and release builds on Linux, Windows and macOS. Strict formatting 
 
 ## Roadmap
 
-1. Benchmark representative 4 GB and 8 GB machines and publish receipts.
-2. Deepen Python lexical-scope, import and call resolution.
+1. Run and publish the new benchmark protocol on representative 4 GB and 8 GB Windows/Linux machines.
+2. Deepen Python resolution further with assignment/rebinding awareness, star-import handling and stronger relative-package semantics without inventing certainty.
 3. Add reference edges and stronger deterministic side-effect/change-impact facts.
 4. Add Knowledge Pack integrity hashes/signatures.
 5. Add C as the next deeply supported language.
