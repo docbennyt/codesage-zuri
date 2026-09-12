@@ -1,0 +1,11 @@
+id = "python-core"
+name = "Python Core"
+language = "python"
+version = "0.1.0"
+schema_version = 1
+
+[compatibility]
+python = "3.x"
+
+[provenance]
+policy = "Original editorial summaries with explicit source links. Legacy White Byte topics were migrated conceptually, not trusted as an executable corpus."
