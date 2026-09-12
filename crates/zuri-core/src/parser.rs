@@ -108,25 +108,26 @@ fn parameters(node: Node<'_>, source: &str) -> Vec<String> {
         })
         .unwrap_or_default()
 }
-fn signal(
-    id: &str,
-    title: &str,
-    description: &str,
+struct SignalSpec<'a> {
+    id: &'a str,
+    title: &'a str,
+    description: &'a str,
     severity: Severity,
     confidence: Confidence,
     evidence: EvidenceKind,
-    node: Node<'_>,
-    remediation: Option<&str>,
-) -> ReviewSignal {
+    remediation: Option<&'a str>,
+}
+
+fn signal(spec: SignalSpec<'_>, node: Node<'_>) -> ReviewSignal {
     ReviewSignal {
-        rule_id: id.into(),
-        title: title.into(),
-        description: description.into(),
-        severity,
-        confidence,
-        evidence,
+        rule_id: spec.id.into(),
+        title: spec.title.into(),
+        description: spec.description.into(),
+        severity: spec.severity,
+        confidence: spec.confidence,
+        evidence: spec.evidence,
         line: node.start_position().row + 1,
-        remediation: remediation.map(str::to_string),
+        remediation: spec.remediation.map(str::to_string),
     }
 }
 fn collect_metrics(node: Node<'_>, m: &mut SymbolMetrics, c: &mut Vec<String>) {
@@ -242,7 +243,7 @@ fn walk(
         "import_statement" => {
             let raw = text(node, source).trim_start_matches("import ").trim();
             for part in raw.split(',') {
-                let mut bits = part.trim().split_whitespace();
+                let mut bits = part.split_whitespace();
                 if let Some(module) = bits.next() {
                     let alias = if bits.next() == Some("as") {
                         bits.next().map(str::to_string)
@@ -297,14 +298,16 @@ fn walk(
         "except_clause" => {
             if text(node, source).trim_start().starts_with("except:") {
                 out.signals.push(signal(
-                    "PY-EXC-001",
-                    "Bare except",
-                    "Bare `except:` catches exceptions that usually should remain visible.",
-                    Severity::Warning,
-                    Confidence::High,
-                    EvidenceKind::Fact,
+                    SignalSpec {
+                        id: "PY-EXC-001",
+                        title: "Bare except",
+                        description: "Bare `except:` catches exceptions that usually should remain visible.",
+                        severity: Severity::Warning,
+                        confidence: Confidence::High,
+                        evidence: EvidenceKind::Fact,
+                        remediation: Some("Catch a specific exception type or re-raise unexpected exceptions."),
+                    },
                     node,
-                    Some("Catch a specific exception type or re-raise unexpected exceptions."),
                 ));
             }
         }
@@ -317,7 +320,18 @@ fn walk(
                 || raw.contains("=set()")
                 || raw.contains("= set()")
             {
-                out.signals.push(signal("PY-ARG-001","Mutable default argument","A list, dict, or set used as a default parameter is created once at function definition time.",Severity::Warning,Confidence::High,EvidenceKind::Fact,node,Some("Use `None` as the default and create the mutable value inside the function.")));
+                out.signals.push(signal(
+                    SignalSpec {
+                        id: "PY-ARG-001",
+                        title: "Mutable default argument",
+                        description: "A list, dict, or set used as a default parameter is created once at function definition time.",
+                        severity: Severity::Warning,
+                        confidence: Confidence::High,
+                        evidence: EvidenceKind::Fact,
+                        remediation: Some("Use `None` as the default and create the mutable value inside the function."),
+                    },
+                    node,
+                ));
             }
         }
         "assignment" => {
@@ -337,14 +351,16 @@ fn walk(
                         | "print"
                 ) {
                     out.signals.push(signal(
-                        "PY-NAME-001",
-                        "Built-in name shadowed",
-                        "This assignment shadows a commonly used Python built-in name.",
-                        Severity::Info,
-                        Confidence::High,
-                        EvidenceKind::Fact,
+                        SignalSpec {
+                            id: "PY-NAME-001",
+                            title: "Built-in name shadowed",
+                            description: "This assignment shadows a commonly used Python built-in name.",
+                            severity: Severity::Info,
+                            confidence: Confidence::High,
+                            evidence: EvidenceKind::Fact,
+                            remediation: Some("Prefer a more specific variable name."),
+                        },
                         node,
-                        Some("Prefer a more specific variable name."),
                     ));
                 }
             }
@@ -365,24 +381,48 @@ fn walk(
             } else {
                 "Use of exec"
             };
-            out.signals.push(signal(id,title,"Dynamic code execution can create security and maintenance risk when input is not fully trusted.",Severity::Warning,Confidence::High,EvidenceKind::Fact,node,Some("Prefer explicit parsing or dispatch. If unavoidable, strictly constrain the input.")));
+            out.signals.push(signal(
+                SignalSpec {
+                    id,
+                    title,
+                    description: "Dynamic code execution can create security and maintenance risk when input is not fully trusted.",
+                    severity: Severity::Warning,
+                    confidence: Confidence::High,
+                    evidence: EvidenceKind::Fact,
+                    remediation: Some("Prefer explicit parsing or dispatch. If unavoidable, strictly constrain the input."),
+                },
+                node,
+            ));
         }
         if raw.contains("subprocess.") && raw.contains("shell=True") {
-            out.signals.push(signal("PY-SEC-001","Subprocess with shell=True","`shell=True` can become command injection when command content is influenced by untrusted data.",Severity::Warning,Confidence::Medium,EvidenceKind::Inference,node,Some("Prefer argument arrays with `shell=False` and validate any external input.")));
+            out.signals.push(signal(
+                SignalSpec {
+                    id: "PY-SEC-001",
+                    title: "Subprocess with shell=True",
+                    description: "`shell=True` can become command injection when command content is influenced by untrusted data.",
+                    severity: Severity::Warning,
+                    confidence: Confidence::Medium,
+                    evidence: EvidenceKind::Inference,
+                    remediation: Some("Prefer argument arrays with `shell=False` and validate any external input."),
+                },
+                node,
+            ));
         }
     }
     if kind == "binary_operator" {
         let raw = text(node, source).replace(' ', "");
         if raw.ends_with("/0") || raw.ends_with("//0") || raw.ends_with("%0") {
             out.signals.push(signal(
-                "PY-ARITH-001",
-                "Literal division by zero",
-                "This arithmetic expression has a literal zero divisor.",
-                Severity::Error,
-                Confidence::High,
-                EvidenceKind::Fact,
+                SignalSpec {
+                    id: "PY-ARITH-001",
+                    title: "Literal division by zero",
+                    description: "This arithmetic expression has a literal zero divisor.",
+                    severity: Severity::Error,
+                    confidence: Confidence::High,
+                    evidence: EvidenceKind::Fact,
+                    remediation: Some("Use a non-zero divisor or guard the operation."),
+                },
                 node,
-                Some("Use a non-zero divisor or guard the operation."),
             ));
         }
     }
