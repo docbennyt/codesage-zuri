@@ -93,7 +93,9 @@ pub fn benchmark_project(root: &Path, rounds: usize) -> Result<BenchmarkReport> 
     }
 
     let index_path = db.path().to_path_buf();
-    let index_bytes = fs::metadata(index_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let index_bytes = fs::metadata(index_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     let stats = db.stats()?;
     let rss = peak_rss_kib();
     let mut notes = vec![
@@ -124,7 +126,11 @@ pub fn benchmark_project(root: &Path, rounds: usize) -> Result<BenchmarkReport> 
         knowledge_search_us,
         index_bytes,
         peak_rss_kib: rss,
-        stats: if cold.stats.files == 0 { cold.stats } else { stats },
+        stats: if cold.stats.files == 0 {
+            cold.stats
+        } else {
+            stats
+        },
         network_used: false,
         model_used: false,
         notes,

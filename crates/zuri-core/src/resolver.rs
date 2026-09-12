@@ -37,7 +37,10 @@ pub(crate) struct ResolutionDecision {
 fn module_name_for_file(file: &str) -> String {
     let normalized = file.replace('\\', "/");
     let without_py = normalized.strip_suffix(".py").unwrap_or(&normalized);
-    let mut parts: Vec<&str> = without_py.split('/').filter(|part| !part.is_empty()).collect();
+    let mut parts: Vec<&str> = without_py
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
     if parts.last().copied() == Some("__init__") {
         parts.pop();
     }
@@ -102,16 +105,14 @@ fn module_member(
     module_by_file: &HashMap<String, String>,
 ) -> Option<String> {
     unique_id(symbols.iter().filter(|symbol| {
-        module_by_file.get(&symbol.file).is_some_and(|name| name == module)
+        module_by_file
+            .get(&symbol.file)
+            .is_some_and(|name| name == module)
             && symbol.qualified_name == member
     }))
 }
 
-fn local_qualified(
-    file: &str,
-    qualified: &str,
-    symbols: &[ResolutionSymbol],
-) -> Option<String> {
+fn local_qualified(file: &str, qualified: &str, symbols: &[ResolutionSymbol]) -> Option<String> {
     unique_id(
         symbols
             .iter()
@@ -212,19 +213,14 @@ fn resolve_dotted_import(
                     } else {
                         continue;
                     };
-                    if let Some(id) = module_member(
-                        &target_module,
-                        member,
-                        symbols,
-                        module_by_file,
-                    ) {
+                    if let Some(id) = module_member(&target_module, member, symbols, module_by_file)
+                    {
                         candidates.push(id);
                     }
                 }
             }
             Some(raw_imported) => {
-                let (imported, alias) =
-                    parsed_imported_name(raw_imported, import.alias.as_deref());
+                let (imported, alias) = parsed_imported_name(raw_imported, import.alias.as_deref());
                 let bound = alias.as_deref().unwrap_or(&imported);
                 let Some(rest) = target.strip_prefix(&format!("{bound}.")) else {
                     continue;
@@ -236,12 +232,7 @@ fn resolve_dotted_import(
                 } else {
                     format!("{module}.{imported}")
                 };
-                if let Some(id) = module_member(
-                    &imported_module,
-                    rest,
-                    symbols,
-                    module_by_file,
-                ) {
+                if let Some(id) = module_member(&imported_module, rest, symbols, module_by_file) {
                     candidates.push(id);
                 }
 
@@ -262,8 +253,10 @@ pub(crate) fn resolve_calls(
     imports: &[ResolutionImport],
     calls: &[ResolutionCall],
 ) -> Vec<ResolutionDecision> {
-    let by_id: HashMap<&str, &ResolutionSymbol> =
-        symbols.iter().map(|symbol| (symbol.id.as_str(), symbol)).collect();
+    let by_id: HashMap<&str, &ResolutionSymbol> = symbols
+        .iter()
+        .map(|symbol| (symbol.id.as_str(), symbol))
+        .collect();
     let module_by_file: HashMap<String, String> = symbols
         .iter()
         .map(|symbol| (symbol.file.clone(), module_name_for_file(&symbol.file)))
@@ -281,7 +274,8 @@ pub(crate) fn resolve_calls(
 
             if let Some((receiver, member)) = target.split_once('.') {
                 if matches!(receiver, "self" | "cls") {
-                    if let Some(caller) = caller.filter(|caller| caller.kind == SymbolKind::Method) {
+                    if let Some(caller) = caller.filter(|caller| caller.kind == SymbolKind::Method)
+                    {
                         if let Some((class_name, _)) = caller.qualified_name.rsplit_once('.') {
                             if let Some(id) = local_qualified(
                                 &call.file,
@@ -306,13 +300,9 @@ pub(crate) fn resolve_calls(
                     };
                 }
 
-                if let Some(id) = resolve_dotted_import(
-                    call,
-                    target,
-                    imports,
-                    symbols,
-                    &module_by_file,
-                ) {
+                if let Some(id) =
+                    resolve_dotted_import(call, target, imports, symbols, &module_by_file)
+                {
                     return ResolutionDecision {
                         call_id: call.id,
                         target_symbol_id: Some(id),
@@ -327,13 +317,8 @@ pub(crate) fn resolve_calls(
                         resolution: CallResolution::Resolved,
                     };
                 }
-                if let Some(id) = resolve_from_import(
-                    call,
-                    name,
-                    imports,
-                    symbols,
-                    &module_by_file,
-                ) {
+                if let Some(id) = resolve_from_import(call, name, imports, symbols, &module_by_file)
+                {
                     return ResolutionDecision {
                         call_id: call.id,
                         target_symbol_id: Some(id),
@@ -356,7 +341,13 @@ pub(crate) fn resolve_calls(
 mod tests {
     use super::*;
 
-    fn symbol(id: &str, file: &str, name: &str, qualified: &str, kind: SymbolKind) -> ResolutionSymbol {
+    fn symbol(
+        id: &str,
+        file: &str,
+        name: &str,
+        qualified: &str,
+        kind: SymbolKind,
+    ) -> ResolutionSymbol {
         ResolutionSymbol {
             id: id.into(),
             file: file.into(),
@@ -379,8 +370,20 @@ mod tests {
     #[test]
     fn lexical_scope_beats_same_name_elsewhere() {
         let symbols = vec![
-            symbol("caller", "a.py", "inner", "outer.inner", SymbolKind::Function),
-            symbol("wanted", "a.py", "helper", "outer.helper", SymbolKind::Function),
+            symbol(
+                "caller",
+                "a.py",
+                "inner",
+                "outer.inner",
+                SymbolKind::Function,
+            ),
+            symbol(
+                "wanted",
+                "a.py",
+                "helper",
+                "outer.helper",
+                SymbolKind::Function,
+            ),
             symbol("other", "b.py", "helper", "helper", SymbolKind::Function),
         ];
         let decisions = resolve_calls(&symbols, &[], &[call(1, "a.py", Some("caller"), "helper")]);
@@ -411,17 +414,39 @@ mod tests {
     #[test]
     fn self_method_is_probable_not_fact() {
         let symbols = vec![
-            symbol("caller", "service.py", "run", "Worker.run", SymbolKind::Method),
-            symbol("target", "service.py", "save", "Worker.save", SymbolKind::Method),
+            symbol(
+                "caller",
+                "service.py",
+                "run",
+                "Worker.run",
+                SymbolKind::Method,
+            ),
+            symbol(
+                "target",
+                "service.py",
+                "save",
+                "Worker.save",
+                SymbolKind::Method,
+            ),
         ];
-        let decisions = resolve_calls(&symbols, &[], &[call(1, "service.py", Some("caller"), "self.save")]);
+        let decisions = resolve_calls(
+            &symbols,
+            &[],
+            &[call(1, "service.py", Some("caller"), "self.save")],
+        );
         assert_eq!(decisions[0].target_symbol_id.as_deref(), Some("target"));
         assert_eq!(decisions[0].resolution, CallResolution::Probable);
     }
 
     #[test]
     fn unrelated_unique_global_is_not_falsely_resolved() {
-        let symbols = vec![symbol("target", "other.py", "helper", "helper", SymbolKind::Function)];
+        let symbols = vec![symbol(
+            "target",
+            "other.py",
+            "helper",
+            "helper",
+            SymbolKind::Function,
+        )];
         let decisions = resolve_calls(&symbols, &[], &[call(1, "app.py", None, "helper")]);
         assert_eq!(decisions[0].resolution, CallResolution::Unresolved);
     }

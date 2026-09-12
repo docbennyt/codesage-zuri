@@ -157,6 +157,87 @@ fn vibe_check_is_deterministic_and_prioritizes_blocking_errors() {
 }
 
 #[test]
+fn import_alias_and_module_alias_resolve_without_global_guessing() {
+    let root = temp_project(
+        "from pkg.utils import clean as scrub\nimport pkg.utils as u\n\ndef main(value):\n    scrub(value)\n    return u.clean(value)\n",
+    );
+    fs::create_dir_all(root.join("pkg")).unwrap();
+    fs::write(root.join("pkg/__init__.py"), "").unwrap();
+    fs::write(
+        root.join("pkg/utils.py"),
+        "def clean(value):\n    return value\n",
+    )
+    .unwrap();
+    zuri_core::index_project(&root, true).unwrap();
+
+    let explanation = zuri_core::explain(&root, "main").unwrap();
+    assert_eq!(explanation.callees.len(), 2);
+    assert!(explanation
+        .callees
+        .iter()
+        .all(|edge| edge.resolution == zuri_core::CallResolution::Resolved));
+    assert!(explanation
+        .callees
+        .iter()
+        .all(|edge| edge.symbol_id.is_some()));
+    cleanup(&root);
+}
+
+#[test]
+fn self_method_is_probable_and_not_counted_as_unresolved() {
+    let root = temp_project(
+        "class Worker:\n    def save(self):\n        return 1\n\n    def run(self):\n        return self.save()\n",
+    );
+    zuri_core::index_project(&root, true).unwrap();
+    let explanation = zuri_core::explain(&root, "Worker.run").unwrap();
+    assert_eq!(explanation.callees.len(), 1);
+    assert_eq!(
+        explanation.callees[0].resolution,
+        zuri_core::CallResolution::Probable
+    );
+    let stats = zuri_core::open_project(&root).unwrap().stats().unwrap();
+    assert_eq!(stats.calls_probable, 1);
+    assert_eq!(stats.calls_unresolved, 0);
+    let bundle = zuri_core::evidence_bundle(&root, "Worker.run", "Explain the call").unwrap();
+    assert!(bundle
+        .inferences
+        .iter()
+        .any(|item| item.contains("probable callee relationship")));
+    assert!(!bundle
+        .verified_facts
+        .iter()
+        .any(|item| item.contains("callee: self.save")));
+    cleanup(&root);
+}
+
+#[test]
+fn unique_symbol_in_an_unimported_module_stays_unresolved() {
+    let root = temp_project("def main():\n    return helper()\n");
+    fs::write(root.join("other.py"), "def helper():\n    return 1\n").unwrap();
+    zuri_core::index_project(&root, true).unwrap();
+    let explanation = zuri_core::explain(&root, "main").unwrap();
+    assert_eq!(explanation.callees.len(), 1);
+    assert_eq!(
+        explanation.callees[0].resolution,
+        zuri_core::CallResolution::Unresolved
+    );
+    assert!(explanation.callees[0].symbol_id.is_none());
+    cleanup(&root);
+}
+
+#[test]
+fn benchmark_harness_runs_offline_on_small_project() {
+    let root = temp_project("def hello(name):\n    return name\n");
+    let report = zuri_core::benchmark_project(&root, 1).unwrap();
+    assert_eq!(report.rounds, 1);
+    assert!(!report.network_used);
+    assert!(!report.model_used);
+    assert_eq!(report.incremental_index_us.len(), 1);
+    assert_eq!(report.knowledge_search_us.len(), 1);
+    cleanup(&root);
+}
+
+#[test]
 fn knowledge_pack_searches_offline() {
     let pack = zuri_core::KnowledgePack::ensure_builtin().unwrap();
     assert!(!pack.search("mutable default", 5).unwrap().is_empty());

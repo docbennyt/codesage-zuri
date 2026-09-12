@@ -1,6 +1,8 @@
+mod benchmark;
 mod knowledge;
 mod model;
 mod parser;
+mod resolver;
 mod scanner;
 mod store;
 
@@ -11,6 +13,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use benchmark::{benchmark_project, BenchmarkReport};
 pub use knowledge::{KnowledgeEntry, KnowledgeHit, KnowledgePack};
 pub use model::{
     EvidenceBundle, LocalOpenAiProvider, ModelConfig, ModelProvider, ModelResponse, ModelStatus,
@@ -177,6 +180,7 @@ pub struct VibeCheckReport {
     pub readiness: String,
     pub error_findings: usize,
     pub warning_findings: usize,
+    pub probable_calls: usize,
     pub unresolved_calls: usize,
     pub concepts_to_review: Vec<String>,
     pub priority_findings: Vec<Finding>,
@@ -280,7 +284,14 @@ pub fn explain(root: &Path, target: &str) -> Result<Explanation> {
     let callees = db.callees(&symbol.id)?;
     let findings = db.findings_for_file(&symbol.location.file)?;
     let mut evidence = BTreeMap::new();
-    *evidence.entry("FACT".into()).or_insert(0) += 1 + callers.len() + callees.len();
+    *evidence.entry("FACT".into()).or_insert(0) += 1;
+    for edge in callers.iter().chain(callees.iter()) {
+        let label = match edge.resolution {
+            CallResolution::Probable => "INFERENCE",
+            CallResolution::Resolved | CallResolution::Unresolved => "FACT",
+        };
+        *evidence.entry(label.into()).or_insert(0) += 1;
+    }
     for finding in &findings {
         *evidence.entry(finding.evidence.to_string()).or_insert(0) += 1;
     }
@@ -313,17 +324,35 @@ pub fn evidence_bundle(root: &Path, target: &str, question: &str) -> Result<Evid
             symbol.metrics.exception_handlers
         ),
     ];
+    let mut edge_inferences = Vec::new();
     for edge in &explanation.callers {
-        verified_facts.push(format!(
-            "caller: {} at {}:{} ({:?})",
-            edge.name, edge.file, edge.line, edge.resolution
-        ));
+        match edge.resolution {
+            CallResolution::Resolved => verified_facts.push(format!(
+                "caller: {} at {}:{} (resolved)",
+                edge.name, edge.file, edge.line
+            )),
+            CallResolution::Probable => edge_inferences.push(format!(
+                "probable caller relationship: {} at {}:{}",
+                edge.name, edge.file, edge.line
+            )),
+            CallResolution::Unresolved => {}
+        }
     }
     for edge in &explanation.callees {
-        verified_facts.push(format!(
-            "callee: {} at {}:{} ({:?})",
-            edge.name, edge.file, edge.line, edge.resolution
-        ));
+        match edge.resolution {
+            CallResolution::Resolved => verified_facts.push(format!(
+                "callee: {} at {}:{} (resolved)",
+                edge.name, edge.file, edge.line
+            )),
+            CallResolution::Probable => edge_inferences.push(format!(
+                "probable callee relationship: {} at {}:{}",
+                edge.name, edge.file, edge.line
+            )),
+            CallResolution::Unresolved => verified_facts.push(format!(
+                "call expression: {} at {}:{} (target unresolved)",
+                edge.name, edge.file, edge.line
+            )),
+        }
     }
     for finding in &explanation.findings {
         if finding.evidence == EvidenceKind::Fact {
@@ -348,7 +377,7 @@ pub fn evidence_bundle(root: &Path, target: &str, question: &str) -> Result<Evid
         }
     }
 
-    let inferences = explanation
+    let mut inferences: Vec<String> = explanation
         .findings
         .iter()
         .filter(|f| f.evidence == EvidenceKind::Inference)
@@ -359,6 +388,7 @@ pub fn evidence_bundle(root: &Path, target: &str, question: &str) -> Result<Evid
             )
         })
         .collect();
+    inferences.extend(edge_inferences);
 
     let mut source_snippets = Vec::new();
     let source_path = fs::canonicalize(root)?.join(&symbol.location.file);
@@ -522,7 +552,7 @@ pub fn vibe_check(root: &Path) -> Result<VibeCheckReport> {
     priority_findings.truncate(10);
     let readiness = if error_findings > 0 {
         "stop-and-understand"
-    } else if warning_findings > 0 || stats.calls_unresolved > 0 {
+    } else if warning_findings > 0 || stats.calls_probable > 0 || stats.calls_unresolved > 0 {
         "review-before-changing"
     } else {
         "ready-for-guided-change"
@@ -532,6 +562,7 @@ pub fn vibe_check(root: &Path) -> Result<VibeCheckReport> {
         readiness: readiness.into(),
         error_findings,
         warning_findings,
+        probable_calls: stats.calls_probable,
         unresolved_calls: stats.calls_unresolved,
         concepts_to_review,
         priority_findings,

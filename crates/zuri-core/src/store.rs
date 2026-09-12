@@ -1,5 +1,8 @@
 use crate::{
     parser::{CallResolution, ParsedFile, SourceLocation, Symbol, SymbolKind, SymbolMetrics},
+    resolver::{
+        resolve_calls as resolve_python_calls, ResolutionCall, ResolutionImport, ResolutionSymbol,
+    },
     CallEdgeView, Confidence, DiscoveredFile, EvidenceKind, Result, Severity, ZuriError,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -27,6 +30,7 @@ pub struct ProjectStats {
     pub classes: usize,
     pub imports: usize,
     pub calls_resolved: usize,
+    pub calls_probable: usize,
     pub calls_unresolved: usize,
     pub findings: usize,
 }
@@ -153,20 +157,61 @@ impl ProjectDb {
             "UPDATE calls SET target_symbol_id=NULL,resolution='unresolved'",
             [],
         )?;
-        let mut st = self
+
+        let mut symbol_statement = self
             .conn
-            .prepare("SELECT DISTINCT simple_name FROM calls WHERE simple_name IS NOT NULL")?;
-        let names: Vec<String> = st
-            .query_map([], |r| r.get(0))?
+            .prepare("SELECT id,file_path,name,qualified_name,kind FROM symbols")?;
+        let symbols: Vec<ResolutionSymbol> = symbol_statement
+            .query_map([], |row| {
+                Ok(ResolutionSymbol {
+                    id: row.get(0)?,
+                    file: row.get(1)?,
+                    name: row.get(2)?,
+                    qualified_name: row.get(3)?,
+                    kind: kind_from_str(&row.get::<_, String>(4)?),
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?;
-        for name in names {
-            let mut q = self.conn.prepare("SELECT id FROM symbols WHERE name=?1")?;
-            let ids: Vec<String> = q
-                .query_map(params![name], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            if ids.len() == 1 {
-                self.conn.execute("UPDATE calls SET target_symbol_id=?1,resolution='resolved' WHERE simple_name=?2",params![ids[0],name])?;
-            }
+
+        let mut import_statement = self
+            .conn
+            .prepare("SELECT file_path,module,imported_name,alias FROM imports")?;
+        let imports: Vec<ResolutionImport> = import_statement
+            .query_map([], |row| {
+                Ok(ResolutionImport {
+                    file: row.get(0)?,
+                    module: row.get(1)?,
+                    imported_name: row.get(2)?,
+                    alias: row.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut call_statement = self.conn.prepare(
+            "SELECT id,file_path,caller_symbol_id,target_text,simple_name FROM calls ORDER BY id",
+        )?;
+        let calls: Vec<ResolutionCall> = call_statement
+            .query_map([], |row| {
+                Ok(ResolutionCall {
+                    id: row.get(0)?,
+                    file: row.get(1)?,
+                    caller_symbol_id: row.get(2)?,
+                    target_text: row.get(3)?,
+                    simple_name: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+
+        for decision in resolve_python_calls(&symbols, &imports, &calls) {
+            let resolution = match decision.resolution {
+                CallResolution::Resolved => "resolved",
+                CallResolution::Probable => "probable",
+                CallResolution::Unresolved => "unresolved",
+            };
+            self.conn.execute(
+                "UPDATE calls SET target_symbol_id=?1,resolution=?2 WHERE id=?3",
+                params![decision.target_symbol_id, resolution, decision.call_id],
+            )?;
         }
         Ok(())
     }
@@ -197,7 +242,8 @@ impl ProjectDb {
             classes: count("SELECT COUNT(*) FROM symbols WHERE kind='class'")?,
             imports: count("SELECT COUNT(*) FROM imports")?,
             calls_resolved: count("SELECT COUNT(*) FROM calls WHERE resolution='resolved'")?,
-            calls_unresolved: count("SELECT COUNT(*) FROM calls WHERE resolution!='resolved'")?,
+            calls_probable: count("SELECT COUNT(*) FROM calls WHERE resolution='probable'")?,
+            calls_unresolved: count("SELECT COUNT(*) FROM calls WHERE resolution='unresolved'")?,
             findings: count("SELECT COUNT(*) FROM findings")?,
         })
     }
