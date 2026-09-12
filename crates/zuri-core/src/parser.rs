@@ -301,11 +301,14 @@ fn walk(
                     SignalSpec {
                         id: "PY-EXC-001",
                         title: "Bare except",
-                        description: "Bare `except:` catches exceptions that usually should remain visible.",
+                        description:
+                            "Bare `except:` catches exceptions that usually should remain visible.",
                         severity: Severity::Warning,
                         confidence: Confidence::High,
                         evidence: EvidenceKind::Fact,
-                        remediation: Some("Catch a specific exception type or re-raise unexpected exceptions."),
+                        remediation: Some(
+                            "Catch a specific exception type or re-raise unexpected exceptions.",
+                        ),
                     },
                     node,
                 ));
@@ -354,7 +357,8 @@ fn walk(
                         SignalSpec {
                             id: "PY-NAME-001",
                             title: "Built-in name shadowed",
-                            description: "This assignment shadows a commonly used Python built-in name.",
+                            description:
+                                "This assignment shadows a commonly used Python built-in name.",
                             severity: Severity::Info,
                             confidence: Confidence::High,
                             evidence: EvidenceKind::Fact,
