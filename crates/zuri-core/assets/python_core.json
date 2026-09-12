@@ -1,0 +1,52 @@
+[
+  {
+    "entry_id": "python.variables",
+    "topic": "variables",
+    "title": "Variables and core value types",
+    "body": "Python names are bound to objects. Common built-in value types include integers, floating-point numbers, strings, booleans and None. A name can later be rebound to a different object.",
+    "keywords": ["variables", "names", "int", "float", "str", "bool", "None", "assignment"],
+    "source_title": "Python Language Reference — Simple statements / assignment",
+    "source_url": "https://docs.python.org/3/reference/simple_stmts.html#assignment-statements",
+    "source_status": "source-backed editorial summary"
+  },
+  {
+    "entry_id": "python.operators",
+    "topic": "operators",
+    "title": "Arithmetic, comparison and Boolean operators",
+    "body": "Python provides arithmetic operators such as +, -, *, /, //, %, and **; comparison operators such as ==, !=, < and >; and Boolean operators `and`, `or` and `not`. Operator precedence affects evaluation order.",
+    "keywords": ["operators", "arithmetic", "comparison", "boolean", "and", "or", "not", "precedence"],
+    "source_title": "Python Language Reference — Expressions",
+    "source_url": "https://docs.python.org/3/reference/expressions.html",
+    "source_status": "source-backed editorial summary"
+  },
+  {
+    "entry_id": "python.conditionals",
+    "topic": "conditional-branching",
+    "title": "Conditional branching with if / elif / else",
+    "body": "An `if` statement selects a suite based on the truth value of an expression. Additional conditions can be tested with `elif`, and `else` handles the remaining path.",
+    "keywords": ["if", "elif", "else", "condition", "branch", "control flow"],
+    "source_title": "Python Language Reference — The if statement",
+    "source_url": "https://docs.python.org/3/reference/compound_stmts.html#the-if-statement",
+    "source_status": "source-backed editorial summary"
+  },
+  {
+    "entry_id": "python.mutable-defaults",
+    "topic": "default-arguments",
+    "title": "Mutable default argument behaviour",
+    "body": "Default parameter expressions are evaluated when the function definition executes, not once per call. Reusing a mutable default can therefore share state between calls. A common pattern is to use None and create the mutable value inside the function.",
+    "keywords": ["mutable", "default", "argument", "parameter", "list", "dict", "set", "None"],
+    "source_title": "Python Tutorial — More on Defining Functions",
+    "source_url": "https://docs.python.org/3/tutorial/controlflow.html#default-argument-values",
+    "source_status": "source-backed editorial summary"
+  },
+  {
+    "entry_id": "python.exceptions",
+    "topic": "exception-handling",
+    "title": "Exception handling",
+    "body": "`try` statements can handle selected exceptions with `except` clauses and can include `else` and `finally`. Catching a specific exception type makes failure behaviour easier to reason about than indiscriminately catching every exception.",
+    "keywords": ["try", "except", "finally", "raise", "exception", "error"],
+    "source_title": "Python Language Reference — The try statement",
+    "source_url": "https://docs.python.org/3/reference/compound_stmts.html#the-try-statement",
+    "source_status": "source-backed editorial summary"
+  }
+]
