@@ -1,0 +1,28 @@
+name: Release build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: zuri-linux-x86_64
+          - os: windows-latest
+            artifact: zuri-windows-x86_64
+          - os: macos-latest
+            artifact: zuri-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --bin zuri
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            target/release/zuri
+            target/release/zuri.exe
+          if-no-files-found: ignore
