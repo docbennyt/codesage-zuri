@@ -33,7 +33,7 @@ fn median(values: &[u128]) -> Option<u128> {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
     let middle = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         Some((sorted[middle - 1] + sorted[middle]) / 2)
     } else {
         Some(sorted[middle])
