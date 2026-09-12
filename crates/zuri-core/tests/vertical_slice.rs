@@ -131,12 +131,21 @@ fn init_and_topic_quiz_work_offline() {
 }
 
 #[test]
-fn vibe_check_is_deterministic_and_flags_blocking_errors() {
-    let root = temp_project("def broken():\n    return 10 / 0\n");
+fn vibe_check_is_deterministic_and_prioritizes_blocking_errors() {
+    let root = temp_project("def warning(items=[]):\n    return items\n");
+    fs::write(
+        root.join("z_error.py"),
+        "def broken():\n    return 10 / 0\n",
+    )
+    .unwrap();
     zuri_core::index_project(&root, true).unwrap();
     let report = zuri_core::vibe_check(&root).unwrap();
     assert_eq!(report.readiness, "stop-and-understand");
     assert!(report.error_findings >= 1);
+    assert_eq!(
+        report.priority_findings.first().map(|finding| finding.severity),
+        Some(Severity::Error)
+    );
     assert_eq!(
         report.basis,
         "deterministic index, call graph, rules and concepts; no model used"
