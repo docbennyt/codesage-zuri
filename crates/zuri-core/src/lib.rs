@@ -365,7 +365,11 @@ pub fn evidence_bundle(root: &Path, target: &str, question: &str) -> Result<Evid
     if let Ok(source) = fs::read_to_string(source_path) {
         let lines: Vec<&str> = source.lines().collect();
         let start = symbol.location.start_line.saturating_sub(1);
-        let end = symbol.location.end_line.min(start.saturating_add(40)).min(lines.len());
+        let end = symbol
+            .location
+            .end_line
+            .min(start.saturating_add(40))
+            .min(lines.len());
         if start < end {
             source_snippets.push(format!(
                 "{}:{}-{}\n{}",
